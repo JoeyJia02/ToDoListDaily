@@ -1,4 +1,4 @@
-# Daily Planner
+# ToDoList
 
 macOS 上的天级任务规划工具：Übersicht React/JSX 桌面卡片 + 本机 TypeScript 编辑页 + Node.js/SQLite。无账户、云端同步、TaskMap 或 Project Explorer 依赖。真实数据初始为空，示例计划不会自动导入。
 
@@ -16,18 +16,20 @@ sh scripts/download-node.sh
 ./planner open
 ```
 
-`install` 只复制 Daily Planner 卡片到用户的 Übersicht widgets 目录，保存本地设置；不会修改其他 Widget。重复安装保留卡片视觉配置。`start` 会检查已运行的服务，防止重复启动。`open` 打开本机编辑页。默认地址为 `http://127.0.0.1:43117`。运行时查找顺序为 `DAILY_PLANNER_NODE`、项目 `.runtime/node`、PATH、Codex 的捆绑运行时；建议独立使用者安装项目运行时，以免依赖 Codex 缓存。
+`install` 只复制 ToDoList 卡片到用户的 Übersicht widgets 目录，保存本地设置；不会修改其他 Widget。重复安装保留卡片视觉配置。`start` 会检查已运行的服务，防止重复启动。`open` 打开本机编辑页。默认地址为 `http://127.0.0.1:43117`。运行时查找顺序为 `DAILY_PLANNER_NODE`、项目 `.runtime/node`、PATH、Codex 的捆绑运行时；建议独立使用者安装项目运行时，以免依赖 Codex 缓存。
 
 安装不使用 sudo、不改系统 PATH、不改 shell 配置、不创建全局 npm 包。Node 下载脚本仅从 Node 官网获取包及校验表；需联网。Übersicht 已安装时无需重装。
 
 ## 放到桌面
 
 1. 首次安装后退出并重新打开 Übersicht，加载仅主屏的默认设置；后续更新可从菜单栏选择 **Refresh All Widgets**。
-2. 在 Daily Planner 子菜单中核对 **Show on Main Screen**；安装程序只写入本工具的主屏默认值，其他 Widget 的显示设置保留。后续重复安装保留你的选择。若 Übersicht 正在运行时覆盖了首次默认值，在菜单手动选择一次即可。
+2. 在 ToDoList 卡片对应的 Übersicht 子菜单（`daily-planner`）中核对 **Show on Main Screen**；安装程序只写入本工具的主屏默认值，其他 Widget 的显示设置保留。后续重复安装保留你的选择。若 Übersicht 正在运行时覆盖了首次默认值，在菜单手动选择一次即可。
 3. 在 Übersicht **Preferences** 配置 **Interaction Shortcut**。按住所配置的修饰键再点击卡片。按照系统提示自行在“系统设置 → 隐私与安全性 → 辅助功能”授予 Übersicht 权限。程序不会替你修改安全权限。
 4. 卡片默认位于右上区域。它属于桌面层，普通应用窗口可遮挡。不会设置总在最前或强制跨所有 Spaces；虚拟桌面、Stage Manager、全屏和桌面图标行为由 Übersicht/macOS 控制。
 
 如果暂时无法交互，直接运行 `./planner open` 使用完整编辑页，卡片仍会每 30 秒读取一次数据。任务标题打开详情，勾选框切换完成，右上刷新按钮主动刷新。
+
+卡片顶部可直接切换“今日计划 / 七日计划”，无需打开浏览器。七日模式显示每天任务数和预计分钟数，点击日期查看该日任务；左右箭头浏览前后七天。每日完成数和进度对应所选日期，七日总量另行标明。返回今日后自动跟随配置时区的当天日期。任务较多时在列表内滚动查看，视图切换不会改写计划。
 
 位置配置位于 `~/Library/Application Support/Übersicht/widgets/daily-planner/src/config.js`。配置键以该文件注释为准，包括位置、宽度、缩放及最多显示任务数。修改后 Refresh All Widgets。若桌面右侧有 Finder 文件，调节右边距或顶部位置。不要把卡片拖成遮住常用桌面文件的尺寸。自定义 Übersicht widgets 根目录可通过 `DAILY_PLANNER_WIDGET_DIR` 指定。
 
@@ -51,6 +53,8 @@ sh scripts/download-node.sh
 ./planner login enable
 ./planner login disable
 ```
+
+产品显示名称为 ToDoList；为兼容已有安装，数据路径、环境变量、服务与 Widget 标识及 `./planner` 命令保持原名。
 
 默认数据目录：`~/Library/Application Support/DailyPlanner`。SQLite 事务、全局版本号和历史记录保护写入，修改前保留 JSON 备份。数据与仓库分开，更新源码和关闭浏览器不会删任务。准确文件名见 `./planner status` 和架构文档。不要在服务运行时手改 SQLite 文件。
 

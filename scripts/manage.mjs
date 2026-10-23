@@ -80,7 +80,7 @@ async function start() {
     const current = await health();
     if (current?.app === 'daily-planner') {
       writeFileSync(pidPath, JSON.stringify({ pid: current.pid, instanceId: current.instanceId, url }), { mode: 0o600 });
-      console.log(`Daily Planner 已启动：${url}\n数据目录：${settings.dataDir}`); return;
+      console.log(`ToDoList 已启动：${url}\n数据目录：${settings.dataDir}`); return;
     }
     await delay(100);
   }
@@ -171,6 +171,6 @@ try {
     case 'test': run(process.execPath, ['--test', ...readdirSync(join(root, 'tests')).filter(f => f.endsWith('.test.mjs')).map(f => join(root, 'tests', f)), join(root, 'widget/client.test.mjs')]); break;
     case 'build': run(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', 'web/tsconfig.json']); break;
     case 'check': run(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', 'web/tsconfig.json', '--noEmit']); break;
-    default: console.log('Daily Planner · 本地桌面计划\n./planner install | start | stop | restart | status | open | deps | build | check | test\n./planner login enable|disable\n./planner uninstall\n环境变量：DAILY_PLANNER_NODE / PORT / TIMEZONE / DATA_DIR / WIDGET_DIR');
+    default: console.log('ToDoList · 本地桌面计划\n./planner install | start | stop | restart | status | open | deps | build | check | test\n./planner login enable|disable\n./planner uninstall\n环境变量：DAILY_PLANNER_NODE / PORT / TIMEZONE / DATA_DIR / WIDGET_DIR');
   }
 } catch (e) { console.error(e.message); process.exitCode = 1; }

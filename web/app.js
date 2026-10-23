@@ -43,7 +43,7 @@ async function operation(name, args, revision) {
         });
     }
     catch {
-        throw new ApiError('无法连接本地服务。请启动 Daily Planner 服务后重试，当前输入已保留。', 0, 'NETWORK');
+        throw new ApiError('无法连接本地服务。请启动 ToDoList 服务后重试，当前输入已保留。', 0, 'NETWORK');
     }
     const body = await response.json().catch(() => ({}));
     if (!response.ok)
@@ -77,7 +77,7 @@ async function loadState(silent = false) {
             $('global-error').textContent = '本地任务服务暂时不可用。请检查服务是否启动，再点击右上角刷新。已有数据仍保存在本机；当前编辑内容会保留。';
             $('global-error').hidden = false;
             if (!state)
-                $('task-sections').innerHTML = '<div class="empty-state"><h3>等待本地服务</h3><p>启动 Daily Planner 服务后，这里会显示你的计划。</p><button class="secondary-button" data-action="refresh">重新连接</button></div>';
+                $('task-sections').innerHTML = '<div class="empty-state"><h3>等待本地服务</h3><p>启动 ToDoList 服务后，这里会显示你的计划。</p><button class="secondary-button" data-action="refresh">重新连接</button></div>';
         }
         throw error;
     }
@@ -486,7 +486,7 @@ async function exportPlan() {
         const href = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = href;
-        anchor.download = `daily-planner-${state?.today || 'export'}.json`;
+        anchor.download = `todolist-${state?.today || 'export'}.json`;
         document.body.append(anchor);
         anchor.click();
         anchor.remove();

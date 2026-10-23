@@ -37,7 +37,7 @@ export function createClient(run, port) {
     try {
       response = JSON.parse(await run(cmd + ' ' + shellQuote(base + path)));
     } catch (error) {
-      throw new Error('无法连接本地服务。请启动 Daily Planner 后重试。');
+      throw new Error('无法连接本地服务。请启动 ToDoList 后重试。');
     }
     if (response.error) {
       const error = new Error(response.error.message || '本次操作未保存。');
@@ -85,8 +85,53 @@ export function dateLabel(date) {
 }
 
 export function todayTasks(data) {
-  return data.tasks.filter(task => task.date === data.today && task.status !== 'cancelled')
+  return tasksForDate(data, data.today);
+}
+
+export function tasksForDate(data, date) {
+  return data.tasks.filter(task => task.date === date && task.status !== 'cancelled')
     .slice().sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+}
+
+// Calendar arithmetic always uses UTC noon. Local DST and the host's timezone
+// cannot move a task into another calendar date.
+export function addCalendarDays(date, days) {
+  const value = new Date(date + 'T12:00:00Z');
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+export function calendarDay(date) {
+  const value = new Date(date + 'T12:00:00Z');
+  return {day: value.getUTCDate(), weekday: '日一二三四五六'[value.getUTCDay()]};
+}
+
+export function viewModel(data, state, fallbackDate) {
+  const today = data ? data.today : fallbackDate;
+  const weekOffset = Number.isInteger(state.weekOffset) ? state.weekOffset : 0;
+  const start = addCalendarDays(today, weekOffset * 7);
+  const dates = Array.from({length: 7}, (_, index) => addCalendarDays(start, index));
+  const week = state.view === 'week';
+  const date = week && dates.indexOf(state.selectedDate) >= 0 ? state.selectedDate : week ? start : today;
+  const days = dates.map(day => ({date: day, ...calendarDay(day), ...summarize(data ? tasksForDate(data, day) : [])}));
+  return {
+    today, date, week, start, end: dates[6], days,
+    tasks: data ? tasksForDate(data, date) : [],
+    weekSummary: summarize(data ? data.tasks.filter(task => dates.indexOf(task.date) >= 0) : []),
+  };
+}
+
+// UI actions never write data. Periodic reads preserve these fields; returning
+// to Today deliberately clears the browsing selection and follows server.today.
+export function updateView(event, state) {
+  if (event.type === 'PLANNER/VIEW') {
+    return {...state, view: event.view === 'week' ? 'week' : 'today', weekOffset: 0, selectedDate: null};
+  }
+  if (event.type === 'PLANNER/DAY') return {...state, selectedDate: event.date};
+  if (event.type === 'PLANNER/WEEK' && (event.offset === 1 || event.offset === -1)) {
+    return {...state, weekOffset: (state.weekOffset || 0) + event.offset, selectedDate: null};
+  }
+  return state;
 }
 
 export function summarize(tasks) {

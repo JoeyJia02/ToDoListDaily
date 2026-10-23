@@ -64,8 +64,9 @@ export function createServer(options = {}) {
       if (request.method === 'GET' && pathname === '/health') { json(response, 200, { ok: true, app: 'daily-planner', pid: process.pid, instanceId }); return; }
       if (request.method === 'GET' && pathname === '/api/state') { json(response, 200, store.state()); return; }
       if (request.method === 'GET' && pathname === '/api/export') {
-        response.setHeader('Content-Disposition', 'attachment; filename="daily-planner.json"');
-        const state = store.state(); json(response, 200, { schemaVersion: 1, timezone: state.timezone, tasks: state.tasks }); return;
+        const state = store.state();
+        response.setHeader('Content-Disposition', `attachment; filename="todolist-${state.today}.json"`);
+        json(response, 200, { schemaVersion: 1, timezone: state.timezone, tasks: state.tasks }); return;
       }
       if (request.method === 'GET' && pathname === '/api/events') {
         response.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', Connection: 'keep-alive' });
@@ -90,7 +91,7 @@ export function createServer(options = {}) {
     } catch (error) {
       if (response.headersSent) { response.end(); return; }
       const status = error instanceof PlannerError ? error.status : 500;
-      if (status === 500) process.stderr.write(`[DailyPlanner] ${new Date().toISOString()} ${error.code ?? error.name}: ${error.message}\n`);
+      if (status === 500) process.stderr.write(`[ToDoList] ${new Date().toISOString()} ${error.code ?? error.name}: ${error.message}\n`);
       json(response, status, { error: { code: error instanceof PlannerError ? error.code : 'INTERNAL', message: error instanceof PlannerError ? error.message : '本地服务错误，本次操作未保存' } });
     }
   });
@@ -116,7 +117,7 @@ export async function startServer(options = {}) {
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   try {
     const server = await startServer();
-    process.stdout.write(`[DailyPlanner] http://127.0.0.1:${server.address().port} (${server.plannerStore.timezone})\n`);
+    process.stdout.write(`[ToDoList] http://127.0.0.1:${server.address().port} (${server.plannerStore.timezone})\n`);
     let stopping = false;
     const stop = () => {
       if (stopping) return; stopping = true;
@@ -124,5 +125,5 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
       const deadline = setTimeout(() => { server.closeAllConnections(); }, 3000); deadline.unref();
     };
     process.on('SIGTERM', stop); process.on('SIGINT', stop);
-  } catch (error) { process.stderr.write(`[DailyPlanner] ${error.message}\n`); process.exitCode = 1; }
+  } catch (error) { process.stderr.write(`[ToDoList] ${error.message}\n`); process.exitCode = 1; }
 }

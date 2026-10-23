@@ -1,4 +1,4 @@
-# Daily Planner local V1 contract
+# ToDoList local V1 contract
 
 Node >=24, built-in node:sqlite; runtime has no npm dependencies. Chinese UI. Server uses `DAILY_PLANNER_DATA_DIR` (default user Application Support/DailyPlanner), `DAILY_PLANNER_PORT` (43117), `DAILY_PLANNER_TIMEZONE` (Asia/Shanghai). Repo must not contain user data. All tasks start empty; examples are never auto-imported.
 

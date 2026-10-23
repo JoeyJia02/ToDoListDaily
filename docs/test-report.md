@@ -2,6 +2,16 @@
 
 日期：2026-10-23，用户时区 Asia/Shanghai。环境：macOS 26.7.1 (25G241)、arm64、Übersicht 1.6 (82)、Node 24.22.1、TypeScript 5.9.3、Git 2.54.0。仓库、服务和 Widget 独立于 TaskMap / Project Explorer。
 
+## ToDoList 更名与卡片七日视图更新
+
+本节为初版验收后的增量结果，下方保留初版记录。产品界面已统一为 ToDoList；内部数据路径和 API/Widget 标识保持兼容。`./planner build`、`./planner check` 通过；完整自动化测试 **26/26** 通过（后端15、Widget11）。新增测试覆盖七日日期运算、所选日期与周汇总分离、翻页、返回今日、周期刷新保留选择、跨日及离线空状态。
+
+已安装到 Übersicht 的实际 widgets 目录并重启本机服务。在原生 Übersicht 前景桌面窗口中确认 ToDoList 名称、今日/七日切换、选10月24日显示4项350分钟、下一组七天中10月30日显示5项260分钟。视图验证未勾选真实任务。编辑页面显示10月24—30日共29项、2060分钟，与同一本机接口一致。导入通过现有 previewChanges/applyChanges 完成，未直接覆盖 SQLite；稳定 ID 防止重复，新建29项，跳过0，冲突0，创建变更版本7。此后用户的其他手动修改和版本递增均予以保留。服务重启后任务仍在。
+
+原生桌面按钮的自动化点击现已验证；用户实际使用的物理修饰键、Mac 注销/重启恢复和多屏场景仍未做完整验收。下方初版“无法定位前景窗口”的记录为历史限制，现已可读取并操作前景窗口。
+
+桌面布局经用户明确授权后，使用访达官方 AppleScript `desktop position` 接口调整，未移动文件。当前1710×1107逻辑像素主屏上，原右侧13个项目图标左移至x1128/1248两列，保留原行位置（Finder对两项作1像素取整）；卡片right28/top16/width344。已回读坐标验证，原图标与卡片配置备份保存在忽略版本管理的 `.local/desktop-layout-right-2026-10-23/`，可恢复。
+
 ## 自动化：20 / 20 通过
 
 命令：`./planner test`。最终后端 15 项，Widget 5 项，无失败、跳过或待办。完整运行约 0.7 秒（随机器变化）。测试数据库在临时目录，不导入真实个人任务。
@@ -65,7 +75,7 @@
 
 ## 用户最后的验收步骤
 
-1. 在 Übersicht 菜单选择 Daily Planner 显示在主屏，Refresh All Widgets；配置交互快捷键并自行授权辅助功能，桌面直接勾选一次。
+1. 在 Übersicht 菜单选择 ToDoList 卡片（`daily-planner`）显示在主屏，Refresh All Widgets；配置交互快捷键并自行授权辅助功能，桌面直接勾选一次。
 2. 导入 examples/week-plan.json 前先预览，按自己的实际日期与时长调整。
 3. 新增自己的持久化测试任务，关闭浏览器，确认桌面保留；stop/start及 Übersicht 退出重开后核对。
 4. 如果需要登录启动，运行 `./planner login enable` 并打开 Übersicht 的 Launch at Login；保存其他工作后自行注销再登录，核对卡片和任务。

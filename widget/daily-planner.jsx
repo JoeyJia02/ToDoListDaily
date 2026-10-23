@@ -1,7 +1,7 @@
 import {run} from 'uebersicht';
 import config from './src/config';
 import port from './src/connection';
-import {settings, createClient, formatMinutes, dateInTimezone, dateLabel, todayTasks, summarize} from './src/client';
+import {settings, createClient, formatMinutes, dateInTimezone, dateLabel, viewModel, updateView, summarize} from './src/client';
 
 const options = settings({...config, port});
 const client = createClient(run, options.port);
@@ -10,7 +10,7 @@ let mutationPending = false;
 
 // Übersicht's scheduler owns this timer. No extra interval or background loop.
 export const refreshFrequency = options.refreshSeconds * 1000;
-export const initialState = {data: null, offline: false, error: '', busy: false, checkedAt: null};
+export const initialState = {data: null, offline: false, error: '', busy: false, checkedAt: null, view: 'today', weekOffset: 0, selectedDate: null};
 
 async function refresh(dispatch) {
   if (!pendingRead) {
@@ -34,7 +34,7 @@ export function updateState(event, state) {
   if (event.type === 'PLANNER/ERROR') return {...state, error: event.error};
   // The command function dispatches its parsed data; its undefined return value
   // produces UB/COMMAND_RAN and must not replace our state.
-  return state;
+  return updateView(event, state);
 }
 
 async function toggle(task, state, dispatch) {
@@ -118,6 +118,17 @@ export const className = `
   .icon { color: var(--muted); border: 0; background: transparent; padding: 3px 6px; border-radius: 6px; font-size: 20px; line-height: 1; }
   .icon:hover, .editor:hover { color: var(--text); background: var(--hover); }
   .date { font-size: 22px; font-weight: 650; letter-spacing: -.6px; line-height: 1.3; margin: 8px 0 17px; }
+  .views { display: flex; gap: 3px; background: var(--line); padding: 3px; border-radius: 9px; margin: 11px 0 5px; }
+  .views button { flex: 1; border: 0; border-radius: 6px; padding: 6px 8px; color: var(--muted); background: transparent; font-size: 11px; line-height: 1.4; }
+  .views button[aria-pressed="true"] { color: var(--text); background: var(--hover); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+  .weeknav { display: flex; align-items: center; justify-content: space-between; gap: 5px; color: var(--muted); font-size: 10px; margin: 7px 0; }
+  .weeknav button { border: 0; border-radius: 5px; background: var(--hover); color: var(--text); padding: 4px 9px; font-size: 12px; }
+  .weekdays { display: flex; gap: 3px; }
+  .weekday { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 0; gap: 3px; border: 1px solid transparent; border-radius: 8px; padding: 6px 1px; background: var(--hover); color: var(--muted); font-size: 9px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+  .weekday[aria-pressed="true"] { border-color: var(--accent); background: rgba(120,140,220,.16); color: var(--text); }
+  .weekday.today .daynumber { color: var(--accent); }
+  .daynumber { font-size: 14px; font-weight: 600; }
+  .weektotal { color: var(--muted); font-size: 10px; line-height: 1.6; margin-top: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
   .summary { display: flex; align-items: baseline; gap: 5px; }
   .count { font-size: 29px; line-height: 1; font-weight: 650; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
   .unit { color: var(--muted); font-size: 12px; }
@@ -125,8 +136,8 @@ export const className = `
   .progress { height: 5px; border-radius: 5px; background: var(--line); overflow: hidden; margin: 11px 0 10px; }
   .fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #7183d7, #a1b0f1); }
   .time { display: flex; justify-content: space-between; gap: 10px; font-size: 10px; line-height: 1.6; color: var(--muted); }
-  .tasks { border-top: 1px solid var(--line); margin-top: 17px; padding-top: 5px; min-height: 36px; flex-shrink: 1; overflow-y: auto; overscroll-behavior: contain; }
-  .task { display: flex; align-items: flex-start; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .tasks { border-top: 1px solid var(--line); margin-top: 17px; padding-top: 5px; min-height: 36px; max-height: ${Math.min(options.maxTasks, 6) * 88}px; flex-shrink: 1; overflow-y: auto; overscroll-behavior: contain; }
+  .task { display: flex; align-items: flex-start; gap: 10px; min-height: 88px; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .task:last-child { border-bottom: 0; }
   .check { appearance: none; -webkit-appearance: none; width: 19px; height: 19px; flex: 0 0 19px; margin: 2px 0 0; border: 1.3px solid var(--muted); border-radius: 6px; cursor: pointer; position: relative; }
   .check:checked { background: #798edb; border-color: #798edb; }
@@ -148,7 +159,7 @@ export const className = `
   .done .description, .done .meta { opacity: .65; }
   .empty { padding: 30px 10px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.8; }
   .empty strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 5px; font-weight: 500; }
-  .overflow { display: block; width: 100%; margin-top: 5px; padding: 8px; border: 0; color: var(--accent); background: var(--hover); border-radius: 8px; font-size: 11px; }
+  .overflow { margin: 5px 0 0; padding: 6px 8px; color: var(--muted); font-size: 10px; text-align: center; }
   .footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; }
   .sync { color: var(--muted); font-size: 9px; display: flex; align-items: center; gap: 5px; }
   .dot { width: 5px; height: 5px; display: inline-block; border-radius: 50%; background: #8ab5a0; }
@@ -161,26 +172,36 @@ export const className = `
 
 export function render(state, dispatch) {
   const data = state.data;
-  const tasks = data ? todayTasks(data) : [];
+  const view = viewModel(data, state, dateInTimezone(options.fallbackTimezone));
+  const tasks = view.tasks;
   const summary = summarize(tasks);
   const percentage = Math.round(summary.progress * 100);
-  const date = data ? data.today : dateInTimezone(options.fallbackTimezone);
-  const isPreviousDay = data && date !== dateInTimezone(data.timezone || options.fallbackTimezone);
-  const cancelled = data ? data.tasks.filter(task => task.date === data.today && task.status === 'cancelled').length : 0;
+  const date = view.date;
+  const isPreviousDay = data && data.today !== dateInTimezone(data.timezone || options.fallbackTimezone);
+  const cancelled = data ? data.tasks.filter(task => task.date === date && task.status === 'cancelled').length : 0;
   const lastChecked = state.checkedAt ? new Intl.DateTimeFormat('zh-CN', {hour: '2-digit', minute: '2-digit', timeZone: data ? data.timezone : options.fallbackTimezone}).format(state.checkedAt) : '';
   return (
-    <section className={'planner ' + options.theme} aria-label="Daily Planner 今日计划">
+    <section className={'planner ' + options.theme} aria-label={'ToDoList ' + (view.week ? '七日计划' : '今日计划')}>
       <div className="topline">
-        <span className="eyebrow">DAILY PLANNER</span>
+        <span className="eyebrow">ToDoList</span>
         <button className="icon" aria-label="刷新计划" title="立即从本地服务刷新" disabled={state.busy} onClick={() => refresh(dispatch)}>↻</button>
       </div>
+      <div className="views" role="group" aria-label="计划视图">
+        <button aria-pressed={!view.week} onClick={() => dispatch({type: 'PLANNER/VIEW', view: 'today'})}>今日计划</button>
+        <button aria-pressed={view.week} onClick={() => dispatch({type: 'PLANNER/VIEW', view: 'week'})}>七日计划</button>
+      </div>
+      {view.week && <div className="week">
+        <div className="weeknav"><button aria-label="上一组七天" title="查看前七天" onClick={() => dispatch({type: 'PLANNER/WEEK', offset: -1})}>‹</button><span>{view.start.slice(5).replace('-', '/')} — {view.end.slice(5).replace('-', '/')}</span><button aria-label="下一组七天" title="查看后七天" onClick={() => dispatch({type: 'PLANNER/WEEK', offset: 1})}>›</button></div>
+        <div className="weekdays" role="group" aria-label="选择计划日期">{view.days.map(day => <button className={'weekday' + (day.date === view.today ? ' today' : '')} key={day.date} aria-label={dateLabel(day.date) + '，' + day.total + ' 项，' + day.totalMinutes + ' 分钟'} aria-pressed={day.date === date} onClick={() => dispatch({type: 'PLANNER/DAY', date: day.date})}><span>周{day.weekday}</span><span className="daynumber">{day.day}</span><span>{day.total}项</span><span>{day.totalMinutes}分</span></button>)}</div>
+        <div className="weektotal">七日总计 {view.weekSummary.total} 项 · {formatMinutes(view.weekSummary.totalMinutes)}</div>
+      </div>}
       <h1 className="date">{dateLabel(date)}</h1>
-      {isPreviousDay && <p className="cache">跨日后尚未同步 · 以下为 {date} 的缓存计划</p>}
+      {isPreviousDay && <p className="cache">跨日后尚未同步 · 仍使用 {data.today} 同步的缓存计划</p>}
       <div className="summary"><span className="count">{summary.completed}<span style={{fontSize: 19, color: 'var(--muted)', fontWeight: 400}}> / {summary.total}</span></span><span className="unit">项已完成</span><span className="percentage">{percentage}%</span></div>
-      <div className="progress" role="progressbar" aria-label="今日完成进度" aria-valuenow={percentage} aria-valuemin="0" aria-valuemax="100"><div className="fill" style={{width: percentage + '%'}} /></div>
-      <div className="time"><span>计划 {formatMinutes(summary.totalMinutes)}</span><span>已完成 {formatMinutes(summary.completedMinutes)}</span></div>
+      <div className="progress" role="progressbar" aria-label={dateLabel(date) + '完成进度'} aria-valuenow={percentage} aria-valuemin="0" aria-valuemax="100"><div className="fill" style={{width: percentage + '%'}} /></div>
+      <div className="time"><span>{view.week ? '当日计划 ' : '计划 '}{formatMinutes(summary.totalMinutes)}</span><span>已完成 {formatMinutes(summary.completedMinutes)}</span></div>
       <div className="tasks">
-        {tasks.slice(0, options.maxTasks).map(task => <div className={'task ' + (task.status === 'done' ? 'done' : '')} key={task.id}>
+        {tasks.map(task => <div className={'task ' + (task.status === 'done' ? 'done' : '')} key={task.id}>
           <input className="check" type="checkbox" checked={task.status === 'done'} disabled={state.busy || state.offline} aria-label={(task.status === 'done' ? '取消完成：' : '标记完成：') + task.title} onChange={() => toggle(task, state, dispatch)} />
           <button className="detail" title="在完整编辑器中查看和修改任务" onClick={() => openEditor(dispatch, task.id)}>
             <span className="titleline"><span className="title">{task.title}</span><span className="duration">{task.estimatedMinutes} 分</span></span>
@@ -188,9 +209,9 @@ export function render(state, dispatch) {
             <span className="meta"><span className="category">{task.category || '未分类'}</span><span>·</span><span className={'priority ' + task.priority}>●</span><span>{({high: '高优先级', medium: '中优先级', low: '低优先级'})[task.priority]}</span>{task.status === 'in_progress' && <span className="running">· 进行中</span>}</span>
           </button>
         </div>)}
-        {!tasks.length && <div className="empty"><strong>{!data ? '连接你的本地计划' : '今天，留一点空间'}</strong>{!data ? '服务启动后会自动读取任务' : '打开编辑器，安排今天的第一件事'}</div>}
+        {!tasks.length && <div className="empty"><strong>{!data ? '连接你的本地计划' : date === view.today ? '今天，留一点空间' : '这一天还没有任务'}</strong>{!data ? '服务启动后会自动读取任务' : view.week ? '点击其他日期查看计划，或打开编辑器添加任务' : '打开编辑器，安排今天的第一件事'}</div>}
       </div>
-      {tasks.length > options.maxTasks && <button className="overflow" onClick={() => openEditor(dispatch)}>还有 {tasks.length - options.maxTasks} 项 · 打开完整计划</button>}
+      {tasks.length > Math.min(options.maxTasks, 6) && <p className="overflow">共 {tasks.length} 项 · 在列表内滚动查看全部任务</p>}
       {state.error && <div className="error" role="alert">{state.error}{data && state.offline ? ' 当前显示上次成功读取的数据。' : ''}</div>}
       <div className="footer"><span className={'sync ' + (state.offline ? 'offline' : '')}><i className="dot" />{state.offline ? '离线缓存' : state.busy ? '正在保存' : lastChecked ? lastChecked + ' 已同步' : '等待连接'}{cancelled > 0 ? ' · ' + cancelled + ' 项已取消' : ''}</span><button className="editor" onClick={() => openEditor(dispatch)}>完整编辑器 ↗</button></div>
       <p className="notice">交互：按住「{options.interactionShortcut}」再点击；需在 macOS 辅助功能中授权 Übersicht。可直接用浏览器编辑。</p>
