@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f5f4ee">
+  <title>Daily Planner · 每一天，都有方向</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%233c5d50'/%3E%3Cpath d='m17 33 10 10 21-23' fill='none' stroke='%23f7f5ed' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="Daily Planner 首页">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg></span>
+        <span>Daily Planner<small>每一天，都有方向</small></span>
+      </a>
+      <div class="nav-label">我的计划</div>
+      <nav aria-label="计划视图">
+        <button class="nav-item active" id="nav-today" data-action="today"><span class="nav-icon" aria-hidden="true">◷</span>今日任务<span class="nav-count" id="today-count">0</span></button>
+        <button class="nav-item" id="nav-week" data-action="week"><span class="nav-icon" aria-hidden="true">▦</span>七日计划<span class="nav-count">7</span></button>
+      </nav>
+      <div class="sidebar-note">
+        <span class="note-sun" aria-hidden="true">✳</span>
+        <p>不必安排每一分钟。<br>为重要的事，留一点空间。</p>
+        <span class="note-rule"></span>
+        <small>ONE DAY AT A TIME</small>
+      </div>
+      <div class="sidebar-bottom">
+        <div class="nav-label">计划文件</div>
+        <button class="utility-link" data-action="import"><span aria-hidden="true">↥</span>导入 JSON 计划</button>
+        <button class="utility-link" data-action="export"><span aria-hidden="true">↧</span>导出全部任务</button>
+        <div class="local-label"><span class="status-dot" id="connection-dot"></span><span id="connection-label">正在连接本地服务</span></div>
+        <small id="timezone-label">仅保存在这台 Mac</small>
+      </div>
+    </aside>
+    <main id="main-content">
+      <header class="topbar">
+        <div class="breadcrumb">我的计划 <span>/</span> <strong id="view-label">今日任务</strong></div>
+        <div class="topbar-actions"><button class="text-button mobile-tool" data-action="import">导入</button><button class="text-button mobile-tool" data-action="export">导出</button><button class="text-button" id="undo-button" data-action="undo" disabled><span aria-hidden="true">↶</span> 撤销</button><button class="icon-button" data-action="refresh" aria-label="刷新任务" title="刷新任务"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.2 7a7 7 0 0 1 11.6-1L20 9M4 15l2.2 3A7 7 0 0 0 18 17"/></svg></button></div>
+      </header>
+      <div class="main-inner">
+        <div id="global-error" class="error-banner" role="alert" hidden></div>
+        <section class="page-heading">
+          <div><div class="eyebrow" id="date-caption">YOUR DAILY FOCUS</div><h1 id="page-title">今天的计划<span class="heading-dot">.</span></h1><p class="page-subtitle" id="page-subtitle">把时间留给重要的事，一件一件完成。</p></div>
+          <button class="primary-button" data-action="create"><span class="plus" aria-hidden="true">+</span> 新增任务</button>
+        </section>
+        <section class="stats-grid" aria-label="计划统计">
+          <div class="stat-card"><div class="stat-label">计划投入 <span aria-hidden="true">◷</span></div><div class="stat-value" id="stat-planned">0 <small>分钟</small></div><div class="stat-foot" id="stat-task-count">还没有安排任务</div></div>
+          <div class="stat-card"><div class="stat-label">已完成时长 <span aria-hidden="true">✓</span></div><div class="stat-value" id="stat-completed">0 <small>分钟</small></div><div class="stat-foot">按已完成任务的预计时长统计</div></div>
+          <div class="stat-card progress-card"><div class="stat-label">完成进度 <span id="stat-ratio">0 / 0</span></div><div class="stat-value" id="stat-progress">0<small>%</small></div><progress id="progress-fill" class="progress-track" max="100" value="0" aria-label="任务完成进度">0%</progress></div>
+        </section>
+        <section class="plan-section" aria-label="任务列表">
+          <div class="section-toolbar"><h2 id="section-title">今天要做的事</h2><div class="date-controls"><button class="icon-button small" data-action="previous" aria-label="前一天" id="previous-button">‹</button><input type="date" min="1900-01-01" max="9999-12-31" id="view-date" aria-label="查看日期"><button class="icon-button small" data-action="next" aria-label="后一天" id="next-button">›</button><button class="text-button today-button" data-action="today">今天</button></div></div>
+          <div id="week-strip" class="week-strip" hidden></div>
+          <div id="task-sections"><div class="loading-state"><span class="loading-ring"></span>正在读取你的计划…</div></div>
+        </section>
+        <footer class="main-footer"><span><span class="tiny-leaf" aria-hidden="true">✦</span> 小步前进，也是在前进。</span><span id="sync-label">本地存储 · 等待连接</span></footer>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="task-dialog" class="modal task-modal" aria-labelledby="task-dialog-title">
+    <form id="task-form">
+      <div class="modal-heading"><div><div class="eyebrow">MAKE ROOM FOR WHAT MATTERS</div><h2 id="task-dialog-title">新增任务</h2></div><button class="icon-button" type="button" data-action="close-task" aria-label="关闭任务编辑">×</button></div>
+      <div id="task-error" class="error-banner" role="alert" hidden></div>
+      <label class="field">任务名称<span class="required-mark">*</span><input name="title" id="task-title" maxlength="200" required placeholder="想把时间花在哪件事上？" autocomplete="off"></label>
+      <label class="field">详细说明<textarea name="description" rows="3" maxlength="5000" placeholder="写下目标、步骤，或一个开始的理由…"></textarea></label>
+      <div class="form-row"><label class="field">计划日期<span class="required-mark">*</span><input name="date" type="date" min="1900-01-01" max="9999-12-31" required></label><label class="field">预计时长<span class="required-mark">*</span><div class="input-unit"><input name="estimatedMinutes" type="number" min="1" max="1440" step="1" required value="30"><span>分钟</span></div></label></div>
+      <div class="form-row"><label class="field">类别<input name="category" maxlength="60" list="categories" placeholder="如：求职、项目、Coding"><datalist id="categories"><option value="求职"><option value="项目"><option value="Coding"><option value="408"><option value="复盘"><option value="休息"></datalist></label><label class="field">优先级<select name="priority"><option value="medium">中 · 按计划推进</option><option value="high">高 · 优先完成</option><option value="low">低 · 从容安排</option></select></label></div>
+      <div class="form-row"><label class="field">任务状态<select name="status"><option value="todo">待做</option><option value="in_progress">进行中</option><option value="done">已完成</option><option value="cancelled">已取消</option></select></label><label class="field">实际用时 <span class="optional">可选</span><div class="input-unit"><input name="actualMinutes" type="number" min="0" max="10080" step="1" placeholder="尚未记录"><span>分钟</span></div></label></div>
+      <div class="modal-footer"><span id="task-meta" class="muted">保存后会同步到桌面卡片</span><div><button type="button" class="secondary-button" data-action="close-task">取消</button><button type="submit" class="primary-button" id="save-task-button">保存任务</button></div></div>
+    </form>
+  </dialog>
+
+  <dialog id="import-dialog" class="modal import-modal" aria-labelledby="import-title">
+    <div class="modal-heading"><div><div class="eyebrow">A LITTLE PLANNING GOES A LONG WAY</div><h2 id="import-title">导入计划</h2></div><button class="icon-button" type="button" data-action="close-import" aria-label="关闭导入">×</button></div>
+    <p class="modal-intro">先预览，再写入。任何验证错误都不会更改现有任务。</p>
+    <div id="import-error" class="error-banner" role="alert" hidden></div>
+    <label class="file-picker"><span aria-hidden="true">↥</span><strong>选择 JSON 计划文件</strong><small id="import-file-label">支持导出的计划或示例计划</small><input type="file" id="import-file" accept=".json,application/json"></label>
+    <label class="field">或粘贴 JSON<textarea id="import-json" rows="5" spellcheck="false" placeholder='{"schemaVersion":1,"tasks":[…]}'></textarea></label>
+    <fieldset class="import-modes"><legend>导入方式</legend><label><input type="radio" name="import-mode" value="append" checked><span><strong>追加</strong><small>保留现有任务；重复 ID 会拒绝导入</small></span><span class="recommended">默认</span></label><label><input type="radio" name="import-mode" value="merge"><span><strong>合并</strong><small>相同 ID 更新，其余新增；保留其他任务</small></span></label><label><input type="radio" name="import-mode" value="replace"><span><strong>覆盖导入日期</strong><small>替换文件中涉及日期的全部现有任务</small></span></label></fieldset>
+    <div id="import-preview" class="import-preview" hidden></div>
+    <div class="modal-footer"><span class="muted" id="import-status">当前计划不会自动被覆盖</span><div><button type="button" class="secondary-button" data-action="preview-import" id="preview-import-button">预览计划</button><button type="button" class="primary-button" data-action="apply-import" id="apply-import-button" disabled>确认导入</button></div></div>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden><span id="toast-message"></span><button id="toast-undo" data-action="undo" hidden>撤销</button><button class="toast-close" data-action="close-toast" aria-label="关闭提示">×</button></div>
+</body>
+</html>

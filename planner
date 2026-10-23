@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+PLANNER_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -n "${DAILY_PLANNER_NODE:-}" ]; then
+  PLANNER_NODE=$DAILY_PLANNER_NODE
+elif [ -x "$PLANNER_ROOT/.runtime/node/bin/node" ]; then
+  PLANNER_NODE="$PLANNER_ROOT/.runtime/node/bin/node"
+elif command -v node >/dev/null 2>&1; then
+  PLANNER_NODE=$(command -v node)
+elif [ -x "$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node" ]; then
+  PLANNER_NODE="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+else
+  echo '需要 Node.js 24+。可运行 sh scripts/download-node.sh 安装项目专用运行时。' >&2
+  exit 1
+fi
+exec "$PLANNER_NODE" "$PLANNER_ROOT/scripts/manage.mjs" "$@"
