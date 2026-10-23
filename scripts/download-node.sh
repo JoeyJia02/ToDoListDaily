@@ -5,6 +5,11 @@ PLANNER_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 PLANNER_VERSION=v24.22.1
 case "$(uname -m)" in arm64) PLANNER_ARCH=arm64;; x86_64) PLANNER_ARCH=x64;; *) echo '仅支持 macOS arm64/x64' >&2; exit 1;; esac
 [ "$(uname -s)" = Darwin ] || { echo '仅支持 macOS' >&2; exit 1; }
+PLANNER_OS_MAJOR=$(sw_vers -productVersion | cut -d. -f1)
+PLANNER_OS_MINOR=$(sw_vers -productVersion | cut -d. -f2)
+if [ "$PLANNER_OS_MAJOR" -lt 13 ] || { [ "$PLANNER_OS_MAJOR" -eq 13 ] && [ "$PLANNER_OS_MINOR" -lt 5 ]; }; then
+  echo 'Node 24 官方运行时需要 macOS 13.5 或更高版本。' >&2; exit 1
+fi
 PLANNER_ARCHIVE="node-$PLANNER_VERSION-darwin-$PLANNER_ARCH.tar.gz"
 PLANNER_TMP=$(mktemp -d)
 trap 'rm -rf "$PLANNER_TMP"' EXIT

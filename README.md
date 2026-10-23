@@ -4,7 +4,7 @@ macOS 上的天级任务规划工具：Übersicht React/JSX 桌面卡片 + 本�
 
 ## 安装与启动
 
-需要 macOS 12+、[Übersicht](https://tracesof.net/uebersicht/) 和 Node.js 24+。本次开发机器为 macOS 26.7.1、Übersicht 1.6 (82)。无需编译原生模块，也无需安装 npm 运行依赖。
+需要 macOS 13.5+、[Übersicht](https://tracesof.net/uebersicht/) 和 Node.js 24+（[Node 24 官方平台要求](https://github.com/nodejs/node/blob/v24.22.1/BUILDING.md#platform-list)）。本次开发机器为 macOS 26.7.1、Übersicht 1.6 (82)。无需编译原生模块，也无需安装 npm 运行依赖。
 
 在本项目目录运行：
 
