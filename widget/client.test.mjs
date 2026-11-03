@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { shellQuote, settings, createClient, formatMinutes, dateInTimezone, dateLabel, todayTasks, summarize, addCalendarDays, viewModel, updateView } from './src/client.js';
+import { shellQuote, settings, createClient, formatMinutes, dateInTimezone, dateLabel, todayTasks, summarize, addCalendarDays, viewModel, updateView, codexUsageView, formatCodexReset, formatCodexCountdown, formatCodexWindowLabel, updateQuotaState, formatCodexUpdatedAt } from './src/client.js';
 
 test('native bridge quotes task text as a literal shell argument', () => {
   const text = "quote' $HOME $(printf injected) `printf bad`\n中文";
@@ -119,4 +119,109 @@ test('empty/offline state and out-of-range date selection remain bounded with no
   assert.equal(view.weekSummary.total, 0);
   assert.equal(updateView({type: 'PLANNER/UNKNOWN'}, state), state);
   assert.equal(updateView({type: 'PLANNER/WEEK', offset: 500}, state), state);
+});
+
+
+test('Codex quota windows show remaining percentages and Beijing reset times without guessing missing values', () => {
+  const usage = codexUsageView({available: true, stale: false, windows: [
+    {label: 'codex', windowDurationMins: 300, remainingPercent: 58.4, resetsAt: Date.parse('2026-11-02T12:05:00Z') / 1000},
+    {label: 'codex', windowDurationMins: 10080, remainingPercent: null, resetsAt: null},
+  ]});
+  assert.equal(usage.available, true);
+  assert.equal(usage.stale, false);
+  assert.equal(usage.windows[0].label, '5 小时');
+  assert.equal(usage.windows[1].label, '7 天');
+  assert.equal(usage.windows[0].remaining, '58%');
+  assert.match(usage.windows[0].reset, /11\/2.*20:05/);
+  assert.equal(usage.windows[1].remaining, '未知');
+  assert.equal(usage.windows[1].reset, '重置时间未知');
+  assert.equal(formatCodexReset(NaN), '重置时间未知');
+  assert.equal(codexUsageView({available: false, stale: true, windows: []}).available, false);
+  assert.equal(codexUsageView(null).available, false);
+  assert.equal(codexUsageView({available: true, windows: [null]}).available, false);
+  assert.equal(codexUsageView({available: true, stale: true, windows: [{label: '周', remainingPercent: 0, resetsAt: 1}]}).stale, true);
+});
+
+test('Codex reset countdown handles days, hours, minutes and elapsed or missing timestamps', () => {
+  const now = Date.parse('2026-11-03T00:00:00Z');
+  const at = (milliseconds) => (now + milliseconds) / 1000;
+  assert.equal(formatCodexCountdown(at((2 * 1440 + 3 * 60 + 4) * 60000), now), '距重置还剩 2 天 3 小时 4 分钟');
+  assert.equal(formatCodexCountdown(at(24 * 60 * 60000), now), '距重置还剩 1 天');
+  assert.equal(formatCodexCountdown(at(90 * 60000), now), '距重置还剩 1 小时 30 分钟');
+  assert.equal(formatCodexCountdown(at(45 * 1000), now), '距重置不足 1 分钟');
+  assert.equal(formatCodexCountdown(at(0), now), '已到预计重置时间，等待更新');
+  assert.equal(formatCodexCountdown(at(-60000), now), '已到预计重置时间，等待更新');
+  assert.equal(formatCodexCountdown(null, now), '重置倒计时未知');
+  assert.equal(formatCodexCountdown(Infinity, now), '重置倒计时未知');
+  assert.equal(codexUsageView({available: true, windows: [{resetsAt: at(60000)}]}, now).windows[0].countdown, '距重置还剩 1 分钟');
+});
+
+test('Codex quota lookup is independent of task reads and validates service response', async () => {
+  let command = '';
+  const client = createClient(async value => {command = value; return JSON.stringify({available:true, stale:false, updatedAt:null, windows:[]});}, 43117);
+  assert.equal((await client.readCodexUsage()).available, true);
+  assert.match(command, /127\.0\.0\.1:43117\/api\/codex-usage/);
+  await assert.rejects(() => createClient(async () => '{}', 43117).readCodexUsage(), /额度数据格式不正确/);
+});
+
+
+test('Codex quota labels distinguish window length and other buckets with missing duration', () => {
+  assert.equal(formatCodexWindowLabel('codex', 10080), '7 天');
+  assert.equal(formatCodexWindowLabel('codex', 300), '5 小时');
+  assert.equal(formatCodexWindowLabel('other-model', 60), 'other-model · 1 小时');
+  assert.equal(formatCodexWindowLabel('other-model', null), 'other-model · 周期未知');
+  assert.equal(formatCodexWindowLabel('codex', null), '周期未知');
+  assert.equal(formatCodexWindowLabel(null, 45), '45 分钟');
+  assert.equal(formatCodexWindowLabel('', NaN), '周期未知');
+});
+
+
+test('manual quota refresh uses POST with bounded timeout and recognises response status', async () => {
+  let command = '';
+  const client = createClient(async value => {command = value; return JSON.stringify({available: true, stale: false, updatedAt: '2026-11-03T01:00:00Z', windows: [], refreshStatus: 'updated'});}, 43117);
+  const quota = await client.refreshCodexUsage();
+  assert.equal(quota.refreshStatus, 'updated');
+  assert.match(command, /--max-time 25/);
+  assert.match(command, /--request POST/);
+  assert.match(command, /X-Daily-Planner: 1/);
+  assert.match(command, /--data-binary '\{\}'/);
+  assert.match(command, /\/api\/codex-usage\/refresh/);
+  await assert.rejects(() => createClient(async () => JSON.stringify({available:true, stale:false, windows:[], refreshStatus:'unknown'}), 43117).refreshCodexUsage(), /格式/);
+});
+
+test('manual quota refresh protects latest results and distinguishes failure, throttling and stale data', () => {
+  const fresh = {available: true, stale: false, updatedAt:'2026-11-03T01:00:00Z', windows:[{remainingPercent: 45}]};
+  let state = {quota: fresh, quotaEpoch: 0, quotaMessage: '', quotaRefreshing: false};
+  state = updateQuotaState({type:'QUOTA/BEGIN', epoch:1}, state);
+  assert.equal(state.quotaRefreshing, true);
+  assert.equal(state.quotaMessage, '额度更新中…');
+  assert.equal(updateQuotaState({type:'QUOTA/READ', quota:{...fresh, windows:[]}, epoch:0}, state), state);
+  state = updateQuotaState({type:'QUOTA/FINISH', epoch:2, quota:{...fresh, refreshStatus:'failed', stale:true}}, state);
+  assert.equal(state.quotaMessage, '额度更新失败');
+  assert.equal(state.quota.stale, true);
+  assert.equal(state.quotaRefreshing, false);
+  assert.equal(updateQuotaState({type:'QUOTA/READ', quota:fresh, epoch:1}, state), state);
+  state = updateQuotaState({type:'QUOTA/BEGIN', epoch:3}, state);
+  state = updateQuotaState({type:'QUOTA/FINISH', epoch:4, quota:{...fresh, refreshStatus:'throttled', retryAfterSeconds:8}}, state);
+  assert.match(state.quotaMessage, /8 秒后/);
+  assert.equal(state.quota.stale, false);
+  state = updateQuotaState({type:'QUOTA/BEGIN', epoch:5}, state);
+  state = updateQuotaState({type:'QUOTA/FINISH', epoch:6, quota:{...fresh, refreshStatus:'updated'}}, state);
+  assert.equal(state.quotaMessage, '额度已更新');
+  assert.equal(state.quota.stale, false);
+  state = updateQuotaState({type:'QUOTA/READ', epoch:6, quota:{...fresh, stale:true}}, state);
+  assert.equal(state.quotaMessage, '');
+  state = updateQuotaState({type:'QUOTA/BEGIN', epoch:7}, state);
+  state = updateQuotaState({type:'QUOTA/FINISH', epoch:8, quota:null}, state);
+  assert.equal(state.quotaMessage, '额度更新失败');
+  assert.equal(state.quota.stale, true);
+  state = updateQuotaState({type:'QUOTA/READ', epoch:8, quota:{...fresh, updatedAt:'2026-11-03T02:00:00Z'}}, state);
+  assert.equal(state.quotaMessage, '');
+  assert.equal(state.quota.stale, false);
+});
+
+test('quota update timestamp is distinct and displayed in Beijing time', () => {
+  assert.match(formatCodexUpdatedAt('2026-11-03T01:05:00Z'), /11\/3.*09:05.*北京时间/);
+  assert.equal(formatCodexUpdatedAt(null), '额度更新时间未知');
+  assert.equal(formatCodexUpdatedAt('invalid'), '额度更新时间未知');
 });

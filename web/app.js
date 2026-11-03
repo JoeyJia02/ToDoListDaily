@@ -7,6 +7,9 @@ const $ = (id) => {
 };
 const form = $('task-form');
 const taskDialog = $('task-dialog');
+const taskDescription = $('task-description');
+const taskView = $('task-view');
+const taskEditButton = $('task-edit-button');
 const importDialog = $('import-dialog');
 const statusNames = { todo: '待做', in_progress: '进行中', done: '已完成', cancelled: '已取消' };
 const priorityNames = { high: '高优先级', medium: '中优先级', low: '低优先级' };
@@ -24,6 +27,10 @@ let mutationPending = false;
 let toastTimer;
 let connected = false;
 let loadedHashTask = null;
+let lastInputWasKeyboard = false;
+let taskDialogMode = 'create';
+let detailTask = null;
+let detailRevision = 0;
 class ApiError extends Error {
     status;
     code;
@@ -64,6 +71,11 @@ async function loadState(silent = false) {
             $('global-error').hidden = true;
             connected = true;
             render();
+            if (taskDialog.open && taskDialogMode === 'view' && detailTask && next.revision >= detailRevision) {
+                detailTask = next.tasks.find(task => task.id === detailTask?.id) ?? detailTask;
+                detailRevision = next.revision;
+                renderTaskDetails();
+            }
             if (preview && preview.baseRevision !== next.revision)
                 invalidatePreview('计划已经更新，请重新预览后确认导入。');
             resolveHash();
@@ -175,10 +187,10 @@ function renderTask(task, index, length) {
     const id = escapeHTML(task.id);
     const categoryColors = { '求职': 'c1', 'Coding': 'c2', '408': 'c3', '复盘': 'c4' };
     const done = task.status === 'done';
-    return `<article class="task-card${done ? ' is-done' : ''}${task.status === 'cancelled' ? ' is-cancelled' : ''}">
+    return `<article class="task-card${done ? ' is-done' : ''}${task.status === 'cancelled' ? ' is-cancelled' : ''}" data-action="edit" data-id="${id}">
     <button class="task-check" data-action="toggle" data-id="${id}" role="checkbox" aria-checked="${done}" aria-label="${done ? '取消完成' : '完成任务'}：${escapeHTML(task.title)}"${mutationPending ? ' disabled' : ''}>${done ? '✓' : ''}</button>
     <div class="task-body"><button class="task-title-button" data-action="edit" data-id="${id}" title="查看或编辑任务"><span class="task-title">${escapeHTML(task.title)}</span></button>${task.description ? `<p class="task-description">${escapeHTML(task.description)}</p>` : ''}<div class="task-meta"><span class="category-badge ${categoryColors[task.category] || ''}">${escapeHTML(task.category || '未分类')}</span><span class="priority-tag ${task.priority}"><span class="priority-dot"></span>${priorityNames[task.priority]}</span>${task.status !== 'todo' ? `<span class="status-tag ${task.status === 'in_progress' ? 'in-progress' : ''}">${statusNames[task.status]}</span>` : ''}${task.actualMinutes !== null ? `<span class="status-tag">实际 ${task.actualMinutes} 分钟</span>` : ''}</div></div>
-    <div class="task-right"><div class="task-duration"><strong>${task.estimatedMinutes}</strong> 分钟</div><div class="task-actions"><button class="icon-button" data-action="up" data-id="${id}" aria-label="上移：${escapeHTML(task.title)}" title="上移"${index === 0 || mutationPending ? ' disabled' : ''}>↑</button><button class="icon-button" data-action="down" data-id="${id}" aria-label="下移：${escapeHTML(task.title)}" title="下移"${index === length - 1 || mutationPending ? ' disabled' : ''}>↓</button><button class="icon-button edit-button" data-action="edit" data-id="${id}" aria-label="编辑：${escapeHTML(task.title)}" title="编辑"><svg viewBox="0 0 24 24"><path d="m16 4 4 4M4 20l4-1 12-12-3-3L5 16Z"/></svg></button><button class="icon-button delete-button" data-action="delete" data-id="${id}" aria-label="删除：${escapeHTML(task.title)}" title="删除，可撤销"${mutationPending ? ' disabled' : ''}><svg viewBox="0 0 24 24"><path d="M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/></svg></button></div></div>
+    <div class="task-right"><div class="task-duration"><strong>${task.estimatedMinutes}</strong> 分钟</div><div class="task-actions"><button class="icon-button" data-action="up" data-id="${id}" aria-label="上移：${escapeHTML(task.title)}" title="上移"${index === 0 || mutationPending ? ' disabled' : ''}>↑</button><button class="icon-button" data-action="down" data-id="${id}" aria-label="下移：${escapeHTML(task.title)}" title="下移"${index === length - 1 || mutationPending ? ' disabled' : ''}>↓</button><button class="icon-button edit-button" data-action="edit-form" data-id="${id}" aria-label="编辑：${escapeHTML(task.title)}" title="编辑"><svg viewBox="0 0 24 24"><path d="m16 4 4 4M4 20l4-1 12-12-3-3L5 16Z"/></svg></button><button class="icon-button delete-button" data-action="delete" data-id="${id}" aria-label="删除：${escapeHTML(task.title)}" title="删除，可撤销"${mutationPending ? ' disabled' : ''}><svg viewBox="0 0 24 24"><path d="M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/></svg></button></div></div>
   </article>`;
 }
 function showToast(message, undo = false) {
@@ -197,6 +209,7 @@ function renderUndo() {
 }
 function setMutationPending(value) {
     mutationPending = value;
+    taskEditButton.disabled = value || !state?.tasks.some(task => task.id === detailTask?.id) || state.revision < detailRevision;
     $('save-task-button').disabled = value;
     $('preview-import-button').disabled = value;
     $('apply-import-button').disabled = value || !preview || preview.baseRevision !== state?.revision;
@@ -256,11 +269,59 @@ function taskValues(task) {
     const { title, description, date, estimatedMinutes, actualMinutes, category, priority, status } = task;
     return { title, description, date, estimatedMinutes, actualMinutes, category, priority, status };
 }
-function openTask(task, date = selectedDate) {
-    if (!state) {
-        showToast('请先连接本地服务。');
+function resizeTaskDescription() {
+    if (!taskDialog.open || form.hidden)
         return;
-    }
+    const scrollTop = taskDialog.scrollTop;
+    taskDescription.style.height = 'auto';
+    const style = getComputedStyle(taskDescription);
+    const border = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    taskDescription.style.height = `${taskDescription.scrollHeight + border}px`;
+    taskDialog.scrollTop = scrollTop;
+}
+function renderTaskDetails() {
+    if (!detailTask)
+        return;
+    $('task-view-title').textContent = detailTask.title;
+    $('task-view-description').textContent = detailTask.description || '暂无详细说明';
+    $('task-view-date').textContent = dateLabel(detailTask.date, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+    $('task-view-estimate').textContent = duration(detailTask.estimatedMinutes);
+    $('task-view-category').textContent = detailTask.category || '未分类';
+    $('task-view-priority').textContent = priorityNames[detailTask.priority];
+    $('task-view-status').textContent = statusNames[detailTask.status];
+    $('task-view-actual').textContent = detailTask.actualMinutes === null ? '尚未记录' : duration(detailTask.actualMinutes);
+    const deleted = !state?.tasks.some(task => task.id === detailTask?.id);
+    const awaitingRefresh = !state || state.revision < detailRevision;
+    taskEditButton.disabled = mutationPending || deleted || awaitingRefresh;
+    $('task-error').hidden = !deleted && !awaitingRefresh;
+    if (deleted)
+        $('task-error').textContent = '这项任务已被删除。请关闭详情查看最新计划。';
+    else if (awaitingRefresh)
+        $('task-error').textContent = '更改已保存。重新连接后可以继续编辑。';
+}
+function showTaskMode(mode) {
+    taskDialogMode = mode;
+    taskView.hidden = mode !== 'view';
+    form.hidden = mode === 'view';
+    $('task-dialog-title').textContent = mode === 'view' ? '任务详情' : mode === 'edit' ? '编辑任务' : '安排一件事';
+    if (!taskDialog.open)
+        taskDialog.showModal();
+    taskDialog.scrollTop = 0;
+    resizeTaskDescription();
+    requestAnimationFrame(() => {
+        if (taskDialog.open && taskDialogMode === mode) {
+            $(mode === 'create' ? 'task-title' : 'task-dialog-title').focus({ preventScroll: true });
+        }
+    });
+}
+function showTaskDetails(task, revision = state?.revision ?? 0) {
+    detailTask = task;
+    detailRevision = revision;
+    editingId = task.id;
+    renderTaskDetails();
+    showTaskMode('view');
+}
+function fillTaskForm(task, date = selectedDate) {
     editingId = task?.id ?? null;
     formRevision = state.revision;
     formSnapshot = task ? taskValues(task) : null;
@@ -270,18 +331,51 @@ function openTask(task, date = selectedDate) {
         const element = form.elements.namedItem(key);
         element.value = value === null ? '' : String(value);
     }
-    $('task-dialog-title').textContent = task ? '编辑任务' : '安排一件事';
     $('save-task-button').textContent = task ? '保存更改' : '创建任务';
     $('save-task-button').disabled = mutationPending;
     $('task-error').hidden = true;
     $('task-meta').textContent = task ? `修改日期即可移动任务 · 版本 ${formRevision}` : '保存后会同步到桌面卡片';
-    if (!taskDialog.open)
-        taskDialog.showModal();
-    requestAnimationFrame(() => $('task-title').focus());
+    showTaskMode(task ? 'edit' : 'create');
+}
+function openTask(task, date = selectedDate) {
+    if (!state) {
+        showToast('请先连接本地服务。');
+        return;
+    }
+    if (mutationPending)
+        return;
+    if (task)
+        showTaskDetails(task);
+    else {
+        detailTask = null;
+        fillTaskForm(undefined, date);
+    }
+}
+function editTaskDetails() {
+    if (!state || !detailTask || mutationPending)
+        return;
+    if (state.revision < detailRevision)
+        return;
+    const current = state.tasks.find(task => task.id === detailTask?.id);
+    if (!current) {
+        renderTaskDetails();
+        return;
+    }
+    detailTask = current;
+    fillTaskForm(current);
+}
+function cancelTaskEdit() {
+    if (mutationPending)
+        return;
+    if (taskDialogMode === 'edit' && detailTask) {
+        showTaskDetails(state?.tasks.find(task => task.id === detailTask?.id) ?? detailTask);
+    }
+    else
+        taskDialog.close();
 }
 form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (!form.reportValidity() || mutationPending)
+    if (taskDialogMode === 'view' || !form.reportValidity() || mutationPending)
         return;
     const values = new FormData(form);
     const task = {
@@ -300,11 +394,20 @@ form.addEventListener('submit', async (event) => {
     const patch = formSnapshot ? Object.fromEntries(Object.entries(task).filter(([key, value]) => value !== formSnapshot[key])) : task;
     try {
         if (editingId && Object.keys(patch).length === 0) {
-            taskDialog.close();
+            cancelTaskEdit();
             return;
         }
-        await saveOperation(editingId ? 'updateTask' : 'createTask', editingId ? { id: editingId, patch } : { task }, editingId ? '任务已更新，桌面卡片会同步。' : '新任务已安排。', formRevision);
-        taskDialog.close();
+        const savedId = editingId;
+        const result = await saveOperation(savedId ? 'updateTask' : 'createTask', savedId ? { id: savedId, patch } : { task }, savedId ? '任务已更新，桌面卡片会同步。' : '新任务已安排。', formRevision);
+        if (savedId) {
+            const saved = state && state.revision >= result.revision ? state.tasks.find(item => item.id === savedId) : result.task;
+            if (saved)
+                showTaskDetails(saved, Math.max(state?.revision ?? 0, result.revision));
+            else
+                taskDialog.close();
+        }
+        else
+            taskDialog.close();
         if (view === 'day' && task.date !== selectedDate) {
             selectedDate = task.date;
             render();
@@ -324,6 +427,11 @@ async function changeTask(action, id) {
     }
     if (action === 'edit') {
         openTask(task);
+        return;
+    }
+    if (action === 'edit-form') {
+        detailTask = task;
+        fillTaskForm(task);
         return;
     }
     try {
@@ -526,10 +634,20 @@ function resolveHash() {
             showToast('该任务已不存在，已打开当前计划。');
     }
 }
+document.addEventListener('pointerdown', () => { lastInputWasKeyboard = false; }, { capture: true });
+document.addEventListener('keydown', () => { lastInputWasKeyboard = true; }, { capture: true });
 document.addEventListener('click', event => {
     const target = event.target instanceof Element ? event.target.closest('[data-action]') : null;
     if (!target || (target instanceof HTMLButtonElement && target.disabled))
         return;
+    if (target.classList.contains('task-card')) {
+        // Selecting task text should allow copying it without opening the editor.
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed && selection.containsNode(target, true))
+            return;
+        // Let the dialog return keyboard focus to the task when it closes.
+        target.querySelector('.task-title-button')?.focus({ preventScroll: true });
+    }
     const action = target.dataset.action;
     const id = target.dataset.id;
     if (id) {
@@ -563,6 +681,12 @@ document.addEventListener('click', event => {
             if (!mutationPending)
                 taskDialog.close();
             break;
+        case 'edit-task':
+            editTaskDetails();
+            break;
+        case 'cancel-task-edit':
+            cancelTaskEdit();
+            break;
         case 'refresh':
             void loadState().then(() => showToast('已读取最新计划。')).catch(() => { });
             break;
@@ -595,8 +719,24 @@ $('view-date').addEventListener('change', event => {
     if (validDate(value))
         changeView(view, value);
 });
-taskDialog.addEventListener('cancel', event => { if (mutationPending)
-    event.preventDefault(); });
+taskDialog.addEventListener('cancel', event => {
+    if (mutationPending)
+        event.preventDefault();
+    else if (taskDialogMode === 'edit') {
+        event.preventDefault();
+        cancelTaskEdit();
+    }
+});
+taskDialog.addEventListener('close', () => {
+    // Mouse/touch dismissal should not leave a selection-like frame on the task.
+    if (!lastInputWasKeyboard) {
+        const focused = document.activeElement;
+        if (focused instanceof HTMLElement && focused.closest('.task-card'))
+            focused.blur();
+    }
+});
+taskDescription.addEventListener('input', resizeTaskDescription);
+window.addEventListener('resize', resizeTaskDescription);
 importDialog.addEventListener('cancel', event => { if (mutationPending)
     event.preventDefault(); });
 window.addEventListener('hashchange', () => {

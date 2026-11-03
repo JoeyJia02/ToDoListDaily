@@ -25,8 +25,8 @@ export function settings(config) {
 
 export function createClient(run, port) {
   const base = 'http://127.0.0.1:' + port;
-  const request = async (path, body) => {
-    let cmd = '/usr/bin/curl --silent --show-error --connect-timeout 2 --max-time 5 --noproxy ' + shellQuote('*');
+  const request = async (path, body, timeoutSeconds = 5) => {
+    let cmd = '/usr/bin/curl --silent --show-error --connect-timeout 2 --max-time ' + timeoutSeconds + ' --noproxy ' + shellQuote('*');
     cmd += ' --header ' + shellQuote('Accept: application/json');
     if (body !== undefined) {
       cmd += ' --request POST --header ' + shellQuote('Content-Type: application/json');
@@ -46,6 +46,12 @@ export function createClient(run, port) {
     }
     return response;
   };
+  const validateUsage = usage => {
+    if (typeof usage.available !== 'boolean' || typeof usage.stale !== 'boolean' || !Array.isArray(usage.windows) || usage.windows.some(window => !window || typeof window !== 'object' || Array.isArray(window))) {
+      throw new Error('额度数据格式不正确');
+    }
+    return usage;
+  };
   return {
     async read() {
       const state = await request('/api/state');
@@ -53,6 +59,14 @@ export function createClient(run, port) {
         throw new Error('本地服务返回的数据格式不正确，请检查服务日志。');
       }
       return state;
+    },
+    async readCodexUsage() {
+      return validateUsage(await request('/api/codex-usage'));
+    },
+    async refreshCodexUsage() {
+      const usage = validateUsage(await request('/api/codex-usage/refresh', {}, 25));
+      if (!['updated', 'failed', 'throttled'].includes(usage.refreshStatus)) throw new Error('额度刷新结果格式不正确');
+      return usage;
     },
     write(operation, args, expectedRevision) {
       return request('/api/operations', {operation, args, expectedRevision});
@@ -144,4 +158,95 @@ export function summarize(tasks) {
     completedMinutes: completed.reduce((total, task) => total + task.estimatedMinutes, 0),
     progress: active.length ? completed.length / active.length : 0,
   };
+}
+
+// Quotas are separate rolling windows. Never infer missing values as zero.
+export function formatCodexReset(timestamp) {
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp) || timestamp <= 0) return '重置时间未知';
+  const date = new Date(timestamp * 1000);
+  if (!Number.isFinite(date.getTime())) return '重置时间未知';
+  return new Intl.DateTimeFormat('zh-CN', {timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'}).format(date) + ' 重置';
+}
+
+// The server reports Unix seconds. Use elapsed time instead of calendar-day
+// arithmetic, and never imply that a reached reset has actually occurred.
+export function formatCodexCountdown(timestamp, now = Date.now()) {
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp) || timestamp <= 0 ||
+      typeof now !== 'number' || !Number.isFinite(now) || !Number.isFinite(new Date(timestamp * 1000).getTime())) {
+    return '重置倒计时未知';
+  }
+  const remaining = timestamp * 1000 - now;
+  if (remaining <= 0) return '已到预计重置时间，等待更新';
+  const minutes = Math.floor(remaining / 60000);
+  if (minutes === 0) return '距重置不足 1 分钟';
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const rest = minutes % 60;
+  return '距重置还剩 ' + [days ? days + ' 天' : '', hours ? hours + ' 小时' : '', rest ? rest + ' 分钟' : ''].filter(Boolean).join(' ');
+}
+
+export function formatCodexWindowLabel(label, minutes) {
+  let duration = '周期未知';
+  if (typeof minutes === 'number' && Number.isFinite(minutes) && minutes > 0) {
+    if (minutes % 1440 === 0) duration = (minutes / 1440) + ' 天';
+    else if (minutes % 60 === 0) duration = (minutes / 60) + ' 小时';
+    else duration = minutes + ' 分钟';
+  }
+  const bucket = typeof label === 'string' ? label.trim() : '';
+  return bucket && bucket.toLowerCase() !== 'codex' ? bucket + ' · ' + duration : duration;
+}
+
+export function codexUsageView(usage, now = Date.now()) {
+  if (!usage || !usage.available || !Array.isArray(usage.windows) || !usage.windows.length || usage.windows.some(window => !window || typeof window !== 'object' || Array.isArray(window))) {
+    return {available: false, stale: false, windows: []};
+  }
+  return {
+    available: true, stale: !!usage.stale,
+    windows: usage.windows.map(window => {
+      const remaining = typeof window.remainingPercent === 'number' && Number.isFinite(window.remainingPercent)
+        ? Math.round(Math.max(0, Math.min(100, window.remainingPercent))) + '%'
+        : '未知';
+      return {label: formatCodexWindowLabel(window.label, window.windowDurationMins), remaining, reset: formatCodexReset(window.resetsAt), countdown: formatCodexCountdown(window.resetsAt, now)};
+    }),
+  };
+}
+
+// Epochs prevent cached reads from overwriting a newer manual refresh.
+export function updateQuotaState(event, state) {
+  if (event.type === 'QUOTA/BEGIN') {
+    return {...state, quotaEpoch: event.epoch, quotaRefreshing: true, quotaMessage: '额度更新中…'};
+  }
+  if (event.type === 'QUOTA/FINISH') {
+    const usage = event.quota;
+    const status = usage && usage.refreshStatus;
+    const success = status === 'updated' && usage.available && !usage.stale && usage.windows.length > 0;
+    let message = success ? '额度已更新' : status === 'throttled' ? '刷新过于频繁，请稍后重试' : codexUsageErrorMessage(usage && usage.errorCode) || '额度更新失败';
+    if (status === 'throttled' && Number.isFinite(usage.retryAfterSeconds) && usage.retryAfterSeconds > 0) {
+      message = Math.ceil(usage.retryAfterSeconds) + ' 秒后可重试';
+    }
+    let quota = usage && usage.available ? usage : state.quota;
+    if (!success && status !== 'throttled' && quota) quota = {...quota, stale: true};
+    return {...state, quotaEpoch: event.epoch, quotaRefreshing: false, quota, quotaMessage: message};
+  }
+  if (event.type === 'QUOTA/READ') {
+    if (state.quotaRefreshing || event.epoch !== (state.quotaEpoch || 0)) return state;
+    if (!event.quota) return {...state, quota: state.quota ? {...state.quota, stale: true} : null};
+    const incomingTime = Date.parse(event.quota.updatedAt || '');
+    const previousTime = Date.parse((state.quota && state.quota.updatedAt) || '');
+    const newer = Number.isFinite(incomingTime) && (!Number.isFinite(previousTime) || incomingTime > previousTime);
+    const quotaMessage = newer || (event.quota.stale && state.quotaMessage === '额度已更新') ? '' : state.quotaMessage;
+    return {...state, quota: event.quota, quotaMessage};
+  }
+  return state;
+}
+
+export function formatCodexUpdatedAt(timestamp) {
+  if (!timestamp || typeof timestamp !== 'string') return '额度更新时间未知';
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return '额度更新时间未知';
+  return '额度更新于 ' + new Intl.DateTimeFormat('zh-CN', {timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'}).format(date) + '（北京时间）';
+}
+
+export function codexUsageErrorMessage(code) {
+  return ({authentication: '请检查 Codex 登录', network: '额度网络连接失败', timeout: '额度查询超时', codex_unavailable: '未找到 Codex', no_windows: '没有可用的额度窗口', stopped: '额度服务已停止'})[code] || '';
 }

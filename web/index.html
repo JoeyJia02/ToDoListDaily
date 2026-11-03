@@ -4,9 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#f5f4ee">
+  <meta name="theme-color" content="#f5f6f9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#17191e" media="(prefers-color-scheme: dark)">
   <title>ToDoList · 每一天，都有方向</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%233c5d50'/%3E%3Cpath d='m17 33 10 10 21-23' fill='none' stroke='%23f7f5ed' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%233d65c2'/%3E%3Cpath d='m17 33 10 10 21-23' fill='none' stroke='%23ffffff' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
   <script type="module" src="/app.js"></script>
 </head>
@@ -63,15 +64,28 @@
   </div>
 
   <dialog id="task-dialog" class="modal task-modal" aria-labelledby="task-dialog-title">
-    <form id="task-form">
-      <div class="modal-heading"><div><div class="eyebrow">MAKE ROOM FOR WHAT MATTERS</div><h2 id="task-dialog-title">新增任务</h2></div><button class="icon-button" type="button" data-action="close-task" aria-label="关闭任务编辑">×</button></div>
-      <div id="task-error" class="error-banner" role="alert" hidden></div>
+    <div class="modal-heading"><div><div class="eyebrow">MAKE ROOM FOR WHAT MATTERS</div><h2 id="task-dialog-title" tabindex="-1">任务详情</h2></div><button class="icon-button" type="button" data-action="close-task" aria-label="关闭任务详情">×</button></div>
+    <div id="task-error" class="error-banner" role="alert" hidden></div>
+    <section id="task-view" class="task-view" aria-label="任务内容" hidden>
+      <h3 id="task-view-title" class="task-view-title"></h3>
+      <p id="task-view-description" class="task-view-description"></p>
+      <dl class="task-facts">
+        <div><dt>计划日期</dt><dd id="task-view-date"></dd></div>
+        <div><dt>预计时长</dt><dd id="task-view-estimate"></dd></div>
+        <div><dt>类别</dt><dd id="task-view-category"></dd></div>
+        <div><dt>优先级</dt><dd id="task-view-priority"></dd></div>
+        <div><dt>任务状态</dt><dd id="task-view-status"></dd></div>
+        <div><dt>实际用时</dt><dd id="task-view-actual"></dd></div>
+      </dl>
+      <div class="modal-footer task-view-footer"><span class="muted">仅保存在本机</span><div><button type="button" class="secondary-button" data-action="close-task">关闭</button><button type="button" class="primary-button" id="task-edit-button" data-action="edit-task">编辑</button></div></div>
+    </section>
+    <form id="task-form" hidden>
       <label class="field">任务名称<span class="required-mark">*</span><input name="title" id="task-title" maxlength="200" required placeholder="想把时间花在哪件事上？" autocomplete="off"></label>
-      <label class="field">详细说明<textarea name="description" rows="3" maxlength="5000" placeholder="写下目标、步骤，或一个开始的理由…"></textarea></label>
+      <label class="field">详细说明<textarea name="description" id="task-description" rows="3" maxlength="5000" placeholder="写下目标、步骤，或一个开始的理由…"></textarea></label>
       <div class="form-row"><label class="field">计划日期<span class="required-mark">*</span><input name="date" type="date" min="1900-01-01" max="9999-12-31" required></label><label class="field">预计时长<span class="required-mark">*</span><div class="input-unit"><input name="estimatedMinutes" type="number" min="1" max="1440" step="1" required value="30"><span>分钟</span></div></label></div>
       <div class="form-row"><label class="field">类别<input name="category" maxlength="60" list="categories" placeholder="如：求职、项目、Coding"><datalist id="categories"><option value="求职"><option value="项目"><option value="Coding"><option value="408"><option value="复盘"><option value="休息"></datalist></label><label class="field">优先级<select name="priority"><option value="medium">中 · 按计划推进</option><option value="high">高 · 优先完成</option><option value="low">低 · 从容安排</option></select></label></div>
       <div class="form-row"><label class="field">任务状态<select name="status"><option value="todo">待做</option><option value="in_progress">进行中</option><option value="done">已完成</option><option value="cancelled">已取消</option></select></label><label class="field">实际用时 <span class="optional">可选</span><div class="input-unit"><input name="actualMinutes" type="number" min="0" max="10080" step="1" placeholder="尚未记录"><span>分钟</span></div></label></div>
-      <div class="modal-footer"><span id="task-meta" class="muted">保存后会同步到桌面卡片</span><div><button type="button" class="secondary-button" data-action="close-task">取消</button><button type="submit" class="primary-button" id="save-task-button">保存任务</button></div></div>
+      <div class="modal-footer"><span id="task-meta" class="muted">保存后会同步到桌面卡片</span><div><button type="button" class="secondary-button" data-action="cancel-task-edit">取消</button><button type="submit" class="primary-button" id="save-task-button">保存任务</button></div></div>
     </form>
   </dialog>
 

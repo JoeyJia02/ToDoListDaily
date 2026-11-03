@@ -1,23 +1,30 @@
 import {run} from 'uebersicht';
 import config from './src/config';
 import port from './src/connection';
-import {settings, createClient, formatMinutes, dateInTimezone, dateLabel, viewModel, updateView, summarize} from './src/client';
+import {settings, createClient, formatMinutes, dateInTimezone, dateLabel, viewModel, updateView, summarize, codexUsageView, updateQuotaState, formatCodexUpdatedAt, codexUsageErrorMessage} from './src/client';
 
 const options = settings({...config, port});
 const client = createClient(run, options.port);
 let pendingRead = null;
 let mutationPending = false;
+let quotaEpoch = 0;
+let manualRefreshPending = false;
 
 // Übersicht's scheduler owns this timer. No extra interval or background loop.
 export const refreshFrequency = options.refreshSeconds * 1000;
-export const initialState = {data: null, offline: false, error: '', busy: false, checkedAt: null, view: 'today', weekOffset: 0, selectedDate: null};
+export const initialState = {data: null, quota: null, quotaEpoch: 0, quotaRefreshing: false, quotaMessage: '', offline: false, error: '', busy: false, checkedAt: null, view: 'today', weekOffset: 0, selectedDate: null};
 
 async function refresh(dispatch) {
   if (!pendingRead) {
-    pendingRead = client.read().then(data => ({data, checkedAt: Date.now()})).catch(error => ({readError: error.message}));
+    const epoch = quotaEpoch;
+    pendingRead = Promise.all([
+      client.read().then(data => ({data, checkedAt: Date.now()})).catch(error => ({readError: error.message})),
+      client.readCodexUsage().then(quota => ({quota})).catch(() => ({quota: null})),
+    ]).then(([plan, quota]) => ({...plan, ...quota, quotaEpoch: epoch}));
   }
-  const result = await pendingRead;
-  pendingRead = null;
+  const read = pendingRead;
+  const result = await read;
+  if (pendingRead === read) pendingRead = null;
   dispatch({type: 'PLANNER/READ', ...result});
 }
 
@@ -25,16 +32,34 @@ export const command = dispatch => refresh(dispatch);
 
 export function updateState(event, state) {
   if (event.type === 'PLANNER/READ') {
-    if (event.readError) return {...state, offline: true, error: event.readError};
+    const next = updateQuotaState({type: 'QUOTA/READ', quota: event.quota, epoch: event.quotaEpoch}, state);
+    if (event.readError) return {...next, offline: true, error: event.readError};
     // A periodic read started before a write must never undo the newer view.
-    if (state.data && event.data.revision < state.data.revision) return state;
-    return {...state, data: event.data, offline: false, error: '', checkedAt: event.checkedAt};
+    if (state.data && event.data.revision < state.data.revision) return next;
+    return {...next, data: event.data, offline: false, error: '', checkedAt: event.checkedAt};
   }
+  if (event.type === 'QUOTA/BEGIN' || event.type === 'QUOTA/FINISH') return updateQuotaState(event, state);
   if (event.type === 'PLANNER/BUSY') return {...state, busy: event.busy};
   if (event.type === 'PLANNER/ERROR') return {...state, error: event.error};
   // The command function dispatches its parsed data; its undefined return value
   // produces UB/COMMAND_RAN and must not replace our state.
   return updateView(event, state);
+}
+
+async function refreshNow(dispatch) {
+  if (manualRefreshPending) return;
+  manualRefreshPending = true;
+  const epoch = ++quotaEpoch;
+  dispatch({type: 'QUOTA/BEGIN', epoch});
+  const plan = (async () => {
+    if (pendingRead) await pendingRead;
+    await refresh(dispatch);
+  })();
+  const quota = client.refreshCodexUsage().then(result => ({quota: result})).catch(() => ({quota: null}));
+  const [, result] = await Promise.allSettled([plan, quota]);
+  // Invalidate reads that started while the manual update was in progress.
+  dispatch({type: 'QUOTA/FINISH', epoch: ++quotaEpoch, quota: result.status === 'fulfilled' ? result.value.quota : null});
+  manualRefreshPending = false;
 }
 
 async function toggle(task, state, dispatch) {
@@ -51,8 +76,9 @@ async function toggle(task, state, dispatch) {
   }
   // Wait for a read that may have begun before the write, then fetch current
   // data so a successful toggle always appears immediately.
-  if (pendingRead) await pendingRead;
-  pendingRead = null;
+  const read = pendingRead;
+  if (read) await read;
+  if (pendingRead === read) pendingRead = null;
   await refresh(dispatch);
   mutationPending = false;
   dispatch({type: 'PLANNER/BUSY', busy: false});
@@ -160,18 +186,28 @@ export const className = `
   .empty { padding: 30px 10px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.8; }
   .empty strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 5px; font-weight: 500; }
   .overflow { margin: 5px 0 0; padding: 6px 8px; color: var(--muted); font-size: 10px; text-align: center; }
+  .quota { border-bottom: 1px solid var(--line); margin-top: 7px; padding-bottom: 10px; }
+  .quota-heading { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+  .quota-stale { color: #dba274; }
+  .quota-rows { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 6px; max-height: 82px; overflow-y: auto; }
+  .quota-row { min-width: 0; flex: 1 1 110px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+  .quota-value { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .quota-reset { display: block; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .quota-countdown { display: block; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .quota-updated { color: var(--muted); font-size: 9px; margin-top: 5px; }
+  .quota-unavailable { color: var(--muted); font-size: 10px; margin-top: 5px; }
   .footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; }
   .sync { color: var(--muted); font-size: 9px; display: flex; align-items: center; gap: 5px; }
   .dot { width: 5px; height: 5px; display: inline-block; border-radius: 50%; background: #8ab5a0; }
   .offline .dot { background: #dba274; }
   .editor { padding: 5px 7px; background: transparent; color: var(--accent); border: 0; border-radius: 6px; font-size: 11px; }
-  .notice { color: var(--muted); font-size: 9px; line-height: 1.6; margin: 10px 0 0; border-top: 1px solid var(--line); padding-top: 10px; }
   .error { background: rgba(210,132,94,.13); border: 1px solid rgba(210,132,94,.28); border-radius: 8px; color: var(--text); font-size: 10px; line-height: 1.6; padding: 8px 10px; margin-top: 12px; overflow-wrap: anywhere; }
   .cache { color: #dba274; font-size: 10px; margin: -10px 0 12px; }
 `;
 
 export function render(state, dispatch) {
   const data = state.data;
+  const quota = codexUsageView(state.quota);
   const view = viewModel(data, state, dateInTimezone(options.fallbackTimezone));
   const tasks = view.tasks;
   const summary = summarize(tasks);
@@ -184,7 +220,12 @@ export function render(state, dispatch) {
     <section className={'planner ' + options.theme} aria-label={'ToDoList ' + (view.week ? '七日计划' : '今日计划')}>
       <div className="topline">
         <span className="eyebrow">ToDoList</span>
-        <button className="icon" aria-label="刷新计划" title="立即从本地服务刷新" disabled={state.busy} onClick={() => refresh(dispatch)}>↻</button>
+        <button className="icon" aria-label="刷新计划和 Codex 额度" title="刷新计划和 Codex 额度" disabled={state.busy || state.quotaRefreshing} onClick={() => refreshNow(dispatch)}>↻</button>
+      </div>
+      <div className="quota" aria-label="Codex 额度">
+        <div className="quota-heading"><span>Codex 额度</span><span className={quota.stale || (state.quotaMessage && state.quotaMessage !== '额度已更新') ? 'quota-stale' : ''} aria-live="polite">{state.quotaMessage || codexUsageErrorMessage(state.quota && state.quota.errorCode) || (quota.stale ? '上次数据，可能过期' : '')}</span></div>
+        {quota.available ? <div className="quota-rows">{quota.windows.map((window, index) => <div className="quota-row" key={index}><span>{window.label} 剩余 </span><span className="quota-value">{window.remaining}</span><span className="quota-reset">{window.reset} · 北京时间</span><span className="quota-countdown">{window.countdown}</span></div>)}</div> : <div className="quota-unavailable">额度暂不可用</div>}
+        <div className="quota-updated">{formatCodexUpdatedAt(state.quota && state.quota.updatedAt)}{quota.stale ? ' · 上次数据' : ''}</div>
       </div>
       <div className="views" role="group" aria-label="计划视图">
         <button aria-pressed={!view.week} onClick={() => dispatch({type: 'PLANNER/VIEW', view: 'today'})}>今日计划</button>
@@ -213,8 +254,7 @@ export function render(state, dispatch) {
       </div>
       {tasks.length > Math.min(options.maxTasks, 6) && <p className="overflow">共 {tasks.length} 项 · 在列表内滚动查看全部任务</p>}
       {state.error && <div className="error" role="alert">{state.error}{data && state.offline ? ' 当前显示上次成功读取的数据。' : ''}</div>}
-      <div className="footer"><span className={'sync ' + (state.offline ? 'offline' : '')}><i className="dot" />{state.offline ? '离线缓存' : state.busy ? '正在保存' : lastChecked ? lastChecked + ' 已同步' : '等待连接'}{cancelled > 0 ? ' · ' + cancelled + ' 项已取消' : ''}</span><button className="editor" onClick={() => openEditor(dispatch)}>完整编辑器 ↗</button></div>
-      <p className="notice">交互：按住「{options.interactionShortcut}」再点击；需在 macOS 辅助功能中授权 Übersicht。可直接用浏览器编辑。</p>
+      <div className="footer"><span className={'sync ' + (state.offline ? 'offline' : '')}><i className="dot" />{state.offline ? '离线缓存' : state.busy ? '正在保存' : lastChecked ? '计划 ' + lastChecked + ' 已同步' : '等待连接'}{cancelled > 0 ? ' · ' + cancelled + ' 项已取消' : ''}</span><button className="editor" onClick={() => openEditor(dispatch)}>完整编辑器 ↗</button></div>
     </section>
   );
 }

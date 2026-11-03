@@ -3,6 +3,7 @@ import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
+import { atomicCopyFileSync } from './atomic-copy.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const local = join(root, '.local');
@@ -129,7 +130,7 @@ async function login(enable) {
       copyFileSync(join(root, directory, file), join(appDir, directory, file));
     }
   }
-  copyFileSync(process.execPath, join(appDir, 'runtime/node'));
+  atomicCopyFileSync(process.execPath, join(appDir, 'runtime/node'));
   mkdirSync(dirname(plistPath), { recursive: true });
   const logDir = join(homedir(), 'Library/Logs/DailyPlanner'); mkdirSync(logDir, { recursive: true });
   const plist = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>

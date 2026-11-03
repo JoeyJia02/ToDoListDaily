@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { PlannerStore } from './store.mjs';
 import { PlannerError, object, onlyKeys } from './model.mjs';
+import { createCodexUsage } from './codex-usage.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const assets = new Map([
@@ -48,6 +49,7 @@ export function createServer(options = {}) {
     ...(options.now ? { now: options.now } : {}),
   });
   const clients = new Set(); const instanceId = randomUUID();
+  const codexUsage = options.codexUsage ?? createCodexUsage();
   const server = httpServer(async (request, response) => {
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -63,6 +65,12 @@ export function createServer(options = {}) {
       const pathname = new URL(request.url, origin).pathname;
       if (request.method === 'GET' && pathname === '/health') { json(response, 200, { ok: true, app: 'daily-planner', pid: process.pid, instanceId }); return; }
       if (request.method === 'GET' && pathname === '/api/state') { json(response, 200, store.state()); return; }
+      if (request.method === 'GET' && pathname === '/api/codex-usage') { json(response, 200, codexUsage.read()); return; }
+      if (request.method === 'POST' && pathname === '/api/codex-usage/refresh') {
+        if (request.headers['x-daily-planner'] !== '1') throw new PlannerError('REQUEST_HEADER', '缺少 X-Daily-Planner: 1', 403);
+        const body = object(await readBody(request)); onlyKeys(body, []);
+        json(response, 200, await codexUsage.refresh()); return;
+      }
       if (request.method === 'GET' && pathname === '/api/export') {
         const state = store.state();
         response.setHeader('Content-Disposition', `attachment; filename="todolist-${state.today}.json"`);
@@ -101,7 +109,7 @@ export function createServer(options = {}) {
   server.plannerStore = store;
   const close = server.close.bind(server);
   server.close = (...args) => { for (const client of clients) client.end(); clients.clear(); return close(...args); };
-  server.on('close', () => store.close());
+  server.on('close', () => { codexUsage.close(); store.close(); });
   return server;
 }
 
